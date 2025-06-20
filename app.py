@@ -114,34 +114,34 @@ def resumir_texto_com_gemini(texto_transcricao, titulo_video, tema_video="geral"
     if not texto_transcricao: return "Transcrição indisponível."
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     prompt = f"""
-[PERSONA]
-Atue como um analista de conteúdo sênior e especialista em comunicação didática. Sua especialidade é destilar informações complexas de qualquer área ({tema_video}) e torná-las claras, concisas e acionáveis.
+        [PERSONA]
+        Atue como um analista de conteúdo sênior e especialista em comunicação didática. Sua especialidade é destilar informações complexas de qualquer área ({tema_video}) e torná-las claras, concisas e acionáveis.
 
-[TAREFA PRINCIPAL]
-Analise a transcrição do vídeo a seguir, intitulado "{titulo_video}". Sua meta é criar um resumo denso e objetivo que capture a essência do conteúdo, os conceitos-chave e a lógica do raciocínio apresentado.
+        [TAREFA PRINCIPAL]
+        Analise a transcrição do vídeo a seguir, intitulado "{titulo_video}". Sua meta é criar um resumo denso e objetivo que capture a essência do conteúdo, os conceitos-chave e a lógica do raciocínio apresentado.
 
-[REGRAS DE EXTRAÇÃO]
-- Ignore introduções vagas, agradecimentos, pedidos de inscrição e despedidas.
-- Elimine detalhes excessivamente técnicos, exemplos repetitivos e histórias pessoais que não agregam ao conceito principal.
-- Preserve o "porquê" e o "como" das informações, não apenas o "o quê".
+        [REGRAS DE EXTRAÇÃO]
+        - Ignore introduções vagas, agradecimentos, pedidos de inscrição e despedidas.
+        - Elimine detalhes excessivamente técnicos, exemplos repetitivos e histórias pessoais que não agregam ao conceito principal.
+        - Preserve o "porquê" e o "como" das informações, não apenas o "o quê".
 
-[FORMATO DE SAÍDA]
-Apresente o resumo usando a estrutura mais adequada para o conteúdo do vídeo. Escolha uma das seguintes opções:
-1.  Para tutoriais ou guias ("Como fazer"): Use um formato de Checklist Acionável, com os passos claros e diretos.
-2.  Para vídeos conceituais ou explicativos: Use Tópicos e Subtópicos Hierarquizados (bullet points com indentação) para mostrar a estrutura lógica e a relação entre as ideias.
-3.  Para notícias, debates ou análises: Use um Sumário Executivo com os 3 a 5 pontos mais críticos e suas implicações.
+        [FORMATO DE SAÍDA]
+        Apresente o resumo usando a estrutura mais adequada para o conteúdo do vídeo. Escolha uma das seguintes opções:
+        1.  Para tutoriais ou guias ("Como fazer"): Use um formato de Checklist Acionável, com os passos claros e diretos.
+        2.  Para vídeos conceituais ou explicativos: Use Tópicos e Subtópicos Hierarquizados (bullet points com indentação) para mostrar a estrutura lógica e a relação entre as ideias.
+        3.  Para notícias, debates ou análises: Use um Sumário Executivo com os 3 a 5 pontos mais críticos e suas implicações.
 
-[TOM E ESTILO]
-- Tom: Objetivo, direto e informativo.
-- Linguagem: Simples e acessível, evitando jargões desnecessários.
-- Foco: Clareza e utilidade prática para quem não tem tempo de assistir ao vídeo completo.
-- Use a sintaxe Markdown (ex: `**negrito**` para ênfase, `*` ou `-` para listas) para estruturar sua resposta e melhorar a legibilidade.
+        [TOM E ESTILO]
+        - Tom: Objetivo, direto e informativo.
+        - Linguagem: Simples e acessível, evitando jargões desnecessários.
+        - Foco: Clareza e utilidade prática para quem não tem tempo de assistir ao vídeo completo.
+        - Use a sintaxe Markdown (ex: `**negrito**` para ênfase, `*` ou `-` para listas) para estruturar sua resposta e melhorar a legibilidade.
 
-[CONTEÚDO DO VÍDEO PARA ANÁLISE]
----
-{texto_transcricao}
----
-"""
+        [CONTEÚDO DO VÍDEO PARA ANÁLISE]
+        ---
+        {texto_transcricao}
+        ---
+    """
 
     try:
         response = model.generate_content(prompt)
@@ -152,20 +152,25 @@ Apresente o resumo usando a estrutura mais adequada para o conteúdo do vídeo. 
 def gerar_analise_consolidada_com_gemini(resumos_compilados):
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     prompt = f"""
-    Com base no conjunto de resumos de vídeos de finanças a seguir, sua tarefa é criar uma análise consolidada.
+        [PERSONA]
+        Atue como um estrategista de conteúdo e analista de tendências. Sua especialidade é analisar um conjunto de informações (neste caso, resumos de vídeos) e identificar padrões, temas emergentes e a narrativa geral que os conecta.
 
-    [TAREFA]
-    1.  Identifique os 3 a 5 temas principais que foram discutidos no geral.
-    2.  Para cada tema, mencione brevemente quais canais o abordaram.
-    3.  Conclua com uma observação sobre o sentimento geral (otimista, cauteloso, misto) que os vídeos transmitem.
+        [CONTEXTO]
+        Você recebeu uma compilação de resumos de vários vídeos do YouTube sobre um tópico ou conjunto de tópicos relacionados. Sua tarefa não é resumir os resumos, mas sim **sintetizar uma meta-análise** a partir deles.
 
-    [FORMATO]
-    Use tópicos e subtópicos em Markdown para uma apresentação clara e organizada.
+        [TAREFA ANALÍTICA]
+        Execute os seguintes passos:
+        1.  **Temas Centrais:** Identifique os 3 a 5 temas ou conceitos mais recorrentes em todos os resumos.
+        2.  **Conexões e Variações:** Para cada tema central que você identificar, descreva brevemente como os diferentes vídeos/canais o abordaram. Houve consenso, diferentes perspectivas ou contradições entre eles?
+        3.  **Tom e Perspectiva Geral:** Qual é o tom ou a perspectiva predominante no conjunto dos conteúdos? (Ex: Educacional, de alerta, otimista, crítico, de descoberta, especulativo, etc.).
 
-    [RESUMOS PARA ANÁLISE]
-    ---
-    {resumos_compilados}
-    ---
+        [FORMATO DE SAÍDA]
+        Estruture sua resposta final em Markdown, usando títulos e tópicos para máxima clareza. Não adicione introduções ou conclusões genéricas.
+
+        [RESUMOS PARA ANÁLISE]
+        ---
+        {resumos_compilados}
+        ---
     """
     try:
         response = model.generate_content(prompt)
@@ -180,23 +185,19 @@ def generate_summaries_task(self, channel_query, time_type, time_value):
     O 'bind=True' nos dá acesso ao 'self', que representa a própria tarefa.
     """
     try:
-        # 1. Cria um diretório único para este lote de resumos
         batch_id = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         batch_dir = os.path.join(DATA_DIR, batch_id)
         os.makedirs(batch_dir)
 
-        # 2. Busca os vídeos na API do YouTube
         self.update_state(state='PROGRESS', meta={'current': 0, 'total': '?', 'status': 'Buscando vídeos...'})
         videos = buscar_videos(channel_query, time_type, time_value)
 
         if not videos:
             return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': 0, 'message': 'Nenhum vídeo novo encontrado no período selecionado.'}
 
-        # 3. Processa cada vídeo encontrado
         summary_metadata = []
         total_videos = len(videos)
         for i, video in enumerate(videos):
-            # Atualiza o estado para o frontend saber o progresso
             self.update_state(
                 state='PROGRESS',
                 meta={'current': i, 'total': total_videos, 'status': f'Processando vídeo {i+1} de {total_videos}: {video["snippet"]["title"]}'}
@@ -209,7 +210,6 @@ def generate_summaries_task(self, channel_query, time_type, time_value):
             transcription = obter_transcricao(video_id)
             summary_text = resumir_texto_com_gemini(transcription, video_title, channel_title)
             
-            # Define um nome de arquivo de texto simples e o salva
             txt_filename = f"resumo_{i+1}.txt"
             txt_path = os.path.join(batch_dir, txt_filename)
             with open(txt_path, 'w', encoding='utf-8') as f:
@@ -222,19 +222,14 @@ def generate_summaries_task(self, channel_query, time_type, time_value):
                 "txt_filename": txt_filename
             })
 
-        # 4. Salva os metadados do lote para referência futura
         with open(os.path.join(batch_dir, '_metadata.json'), 'w', encoding='utf-8') as f:
             json.dump({"summaries": summary_metadata}, f, indent=4)
             
-        # 5. Retorna o resultado final da tarefa
         return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': total_videos}
 
     except Exception as e:
-        # Em caso de erro, atualiza o estado para 'FAILURE'
         self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        # Também é uma boa prática registrar o erro no log do servidor
         print(f"ERRO na tarefa Celery: {e}")
-        # Retorna a exceção para que o Celery a registre como uma falha
         raise e
 
 @app.route('/')

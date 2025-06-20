@@ -1,4 +1,3 @@
-// --- Gerenciamento de Telas ---
 function showScreen(screenName) {
     document.querySelectorAll('.main-container').forEach(s => s.style.display = 'none');
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -9,14 +8,11 @@ function showScreen(screenName) {
     if (screenElement) screenElement.style.display = 'block';
     if (activeBtn) activeBtn.classList.add('active');
 
-    // Ao mudar para a Visão Geral, sempre recarrega os dados dos lotes
     if (screenName === 'overview') {
         loadOverviewData();
     }
 }
 
-
-// --- Lógica do Resumidor (Início da Tarefa Assíncrona) ---
 document.getElementById('config-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const form = e.target;
@@ -34,7 +30,6 @@ document.getElementById('config-form').addEventListener('submit', function(e) {
     submitBtn.disabled = true;
     statusText.textContent = "Enviando seu pedido para a fila de processamento...";
 
-    // Chama a API para INICIAR a tarefa em segundo plano
     fetch('/api/generate-summaries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -45,14 +40,13 @@ document.getElementById('config-form').addEventListener('submit', function(e) {
         })
     })
     .then(response => {
-        if (response.status !== 202) { // 202 Accepted é o status esperado para tarefas iniciadas
+        if (response.status !== 202) {
             throw new Error('Falha ao iniciar a tarefa no servidor.');
         }
         return response.json();
     })
     .then(data => {
         if (data.task_id) {
-            // Se a tarefa foi iniciada, começa a verificar o status dela
             checkTaskStatus(data.task_id);
         } else {
             throw new Error('O servidor não retornou um ID para a tarefa.');
@@ -66,52 +60,42 @@ document.getElementById('config-form').addEventListener('submit', function(e) {
     });
 });
 
-
-// --- Monitoramento de Tarefas (Polling) ---
 function checkTaskStatus(taskId) {
     const loadingSpinner = document.querySelector('.loading-spinner');
     const submitBtn = document.querySelector('button[type="submit"]');
     const statusText = loadingSpinner.querySelector('p');
 
-    // Cria um intervalo para verificar o status a cada 5 segundos
     const interval = setInterval(() => {
         fetch(`/api/task-status/${taskId}`)
             .then(response => response.json())
             .then(data => {
-                // Atualiza o texto de status na tela para o usuário ver o progresso
                 if (data.status) {
                     statusText.textContent = data.status;
                 }
-
-                // Se o estado for SUCCESS (Concluído)
                 if (data.state === 'SUCCESS') {
-                    clearInterval(interval); // Para de verificar
+                    clearInterval(interval);
                     loadingSpinner.style.display = 'none';
                     submitBtn.disabled = false;
                     alert(`Processamento concluído! ${data.result.summary_count} resumos foram gerados.`);
-                    showScreen('overview'); // Leva para a tela de visão geral
+                    showScreen('overview');
                 } 
-                // Se o estado for FAILURE (Falha)
                 else if (data.state === 'FAILURE') {
-                    clearInterval(interval); // Para de verificar
+                    clearInterval(interval);
                     loadingSpinner.style.display = 'none';
                     submitBtn.disabled = false;
                     alert(`Ocorreu um erro durante o processamento: ${data.status}`);
                 }
-                // Se ainda estiver em PENDING ou PROGRESS, o loop continua
             })
             .catch(err => {
-                clearInterval(interval); // Para de verificar em caso de erro de rede
+                clearInterval(interval);
                 alert('Erro de conexão ao verificar o status da tarefa.');
                 console.error('Erro de polling:', err);
                 loadingSpinner.style.display = 'none';
                 submitBtn.disabled = false;
             });
-    }, 5000); // Intervalo de verificação: 5000 ms = 5 segundos
+    }, 5000);
 }
 
-
-// --- Lógica da Visão Geral (Carregar e Exibir Dados) ---
 async function loadOverviewData() {
     const selector = document.getElementById('batch-selector');
     const overviewContent = document.getElementById('overview-content');
@@ -149,7 +133,6 @@ document.getElementById('batch-selector').addEventListener('change', function(e)
     displayBatchDetails(e.target.value);
 })
 
-// Exibe os detalhes de um lote selecionado como um acordeão
 function displayBatchDetails(batchId) {
     const selector = document.getElementById('batch-selector');
     const selectedOption = selector.querySelector(`option[value="${batchId}"]`);
@@ -190,17 +173,15 @@ function displayBatchDetails(batchId) {
                 </div>
             </div>
         `;
-        // Adiciona um listener para carregar o conteúdo quando o card for aberto
         const button = accordionItem.querySelector('button');
         button.addEventListener('click', () => {
             loadSummaryContent(batchId, summary.txt_filename, `collapse-${accordionId}`);
-        }, { once: true }); // 'once: true' garante que o conteúdo só seja carregado uma vez
+        }, { once: true });
 
         accordionContainer.appendChild(accordionItem);
     });
 }
 
-// Carrega o conteúdo de um resumo específico sob demanda
 async function loadSummaryContent(batchId, txtFilename, targetDivId) {
     const accordionBody = document.getElementById(targetDivId).querySelector('.accordion-body');
     try {
@@ -247,5 +228,4 @@ document.getElementById('generate-summary-btn').addEventListener('click', async 
     }
 });
 
-// Inicialização
 document.addEventListener('DOMContentLoaded', () => showScreen('config'));

@@ -1,6 +1,6 @@
 # vídeoSumma 🤖
 
-**vídeoSumma** é uma aplicação web que utiliza a API do Gemini para gerar resumos detalhados e análises consolidadas de vídeos do YouTube a partir de canais, links ou palavras-chave.
+**vídeoSumma** é uma aplicação web que utiliza a API do Gemini para gerar resumos detalhados e análises consolidadas de vídeos do YouTube a partir de canais, links ou palavras-chave. 
 
 ## Arquitetura
 
@@ -62,7 +62,7 @@ Este terminal ficará ativo, mostrando os logs das requisições web.
 python app.py
 ```
 
-**4. Acesse a Aplicação**
+**4.**
 Abra seu navegador e acesse: `http://127.0.0.1:5000`
 
 ---
