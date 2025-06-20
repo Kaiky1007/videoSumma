@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -7,114 +8,88 @@ import google.generativeai as genai
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 
-# --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
-
-# Inicializa o Flask
 app = Flask(__name__)
 
-# Configura as chaves de API a partir do .env
-# É crucial que o arquivo .env esteja na mesma pasta que app.py
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Verifica se as chaves foram carregadas
 if not YOUTUBE_API_KEY or not GEMINI_API_KEY:
     raise ValueError("Chaves de API não encontradas no arquivo .env. Verifique sua configuração.")
 
-# Configura as APIs dos serviços
 genai.configure(api_key=GEMINI_API_KEY)
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 
-
-# --- FUNÇÕES AUXILIARES ---
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def obter_id_de_url_canal(url):
-    """
-    Extrai o ID, nome de usuário ou handle de diferentes formatos de URL do YouTube.
-    Retorna um dicionário com o tipo ('id', 'username', 'handle') e o valor.
-    """
-    # Padrão para /channel/UC...
+    if not url: return None
     match = re.search(r'\/channel\/([a-zA-Z0-9_-]+)', url)
-    if match:
-        return {'type': 'id', 'value': match.group(1)}
-    
-    # Padrão para /user/username ou /c/username
+    if match: return {'type': 'id', 'value': match.group(1)}
     match = re.search(r'\/(user|c)\/([a-zA-Z0-9_-]+)', url)
-    if match:
-        return {'type': 'username', 'value': match.group(2)}
-
-    # Padrão para /@handle
+    if match: return {'type': 'username', 'value': match.group(2)}
     match = re.search(r'\/@([a-zA-Z0-9_.-]+)', url)
-    if match:
-        return {'type': 'handle', 'value': match.group(1)}
-        
+    if match: return {'type': 'handle', 'value': match.group(1)}
     return None
 
-def buscar_videos(query, time_type, time_value):
-    """
-    Busca vídeos no YouTube com base em uma query (ID do canal, palavra-chave)
-    e um período de tempo (horas ou semanas).
-    """
-    params = {
-        'part': 'snippet',
-        'maxResults': 10,
-        'order': 'date',
-        'type': 'video'
-    }
+def buscar_videos(query_string, time_type, time_value):
+    all_videos = {}
+    queries = [q.strip() for q in query_string.split(',') if q.strip()]
 
-    # Calcula a data limite para a busca
-    if time_type == 'weeks':
-        delta = timedelta(weeks=int(time_value))
-    else:
-        delta = timedelta(hours=int(time_value))
-    
-    data_limite = (datetime.now(timezone.utc) - delta).isoformat().replace('+00:00', 'Z')
-    params['publishedAfter'] = data_limite
-    
-    # Verifica se a query é uma URL de canal
-    info_canal = obter_id_de_url_canal(query)
-    
-    if info_canal:
-        channel_id = None
-        if info_canal['type'] == 'id':
-            channel_id = info_canal['value']
-        elif info_canal['type'] in ['username', 'handle']:
-            search_param = {'forUsername': info_canal['value']} if info_canal['type'] == 'username' else {'forHandle': info_canal['value']}
-            try:
-                channel_response = youtube.channels().list(part='id', **search_param).execute()
-                if channel_response.get('items'):
-                    channel_id = channel_response['items'][0]['id']
-            except Exception as e:
-                print(f"Erro ao buscar ID do canal para '{info_canal['value']}': {e}")
-                channel_id = None
-        
-        if channel_id:
-            params['channelId'] = channel_id
-        else:
+    if not queries:
+        queries.append(None)
+
+    for query in queries:
+        params = {
+            'part': 'snippet',
+            'maxResults': 10,
+            'order': 'date',
+            'type': 'video'
+        }
+        try:
+            time_val_int = int(time_value)
+            if time_type == 'weeks':
+                delta = timedelta(weeks=time_val_int)
+            else:
+                delta = timedelta(hours=time_val_int)
+            params['publishedAfter'] = (datetime.now(timezone.utc) - delta).isoformat().replace('+00:00', 'Z')
+        except (ValueError, TypeError):
+            return []
+
+        info_canal = obter_id_de_url_canal(query)
+        if info_canal:
+            channel_id = None
+            if info_canal['type'] == 'id': channel_id = info_canal['value']
+            elif info_canal['type'] in ['username', 'handle']:
+                search_param = {'forUsername': info_canal['value']} if info_canal['type'] == 'username' else {'forHandle': info_canal['value']}
+                try:
+                    channel_response = youtube.channels().list(part='id', **search_param).execute()
+                    if channel_response.get('items'): channel_id = channel_response['items'][0]['id']
+                except Exception as e: print(f"Erro ao buscar ID do canal: {e}")
+            if channel_id: params['channelId'] = channel_id
+            else: params['q'] = query
+        elif query:
             params['q'] = query
-    elif query:
-        params['q'] = query
-
-    search_response = youtube.search().list(**params).execute()
-    return search_response.get('items', [])
+        
+        try:
+            search_response = youtube.search().list(**params).execute()
+            for item in search_response.get('items', []):
+                all_videos[item['id']['videoId']] = item
+        except Exception as e:
+            print(f"ERRO CRÍTICO na busca da API do YouTube para a query '{query}': {e}")
+            
+    return list(all_videos.values())
 
 def obter_transcricao(video_id):
-    """Obtém a transcrição de um vídeo do YouTube."""
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['pt', 'en'])
         return " ".join([item['text'] for item in transcript_list])
-    except (NoTranscriptFound, TranscriptsDisabled, Exception):
-        return None
+    except Exception: return None
 
 def resumir_texto_com_gemini(texto_transcricao, titulo_video, tema_video="geral"):
-    """Envia a transcrição para a API do Gemini para obter um resumo otimizado."""
-    if not texto_transcricao:
-        return "Não foi possível gerar um resumo, pois a transcrição não está disponível."
-
+    if not texto_transcricao: return "Transcrição indisponível."
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
-
-    # Nosso novo prompt dinâmico e estruturado
     prompt = f"""
 [PERSONA]
 Atue como um analista de conteúdo sênior e especialista em comunicação didática. Sua especialidade é destilar informações complexas de qualquer área ({tema_video}) e torná-las claras, concisas e acionáveis.
@@ -129,15 +104,15 @@ Analise a transcrição do vídeo a seguir, intitulado "{titulo_video}". Sua met
 
 [FORMATO DE SAÍDA]
 Apresente o resumo usando a estrutura mais adequada para o conteúdo do vídeo. Escolha uma das seguintes opções:
-1.  **Para tutoriais ou guias ("Como fazer"):** Use um formato de **Checklist Acionável**, com os passos claros e diretos.
-2.  **Para vídeos conceituais ou explicativos:** Use **Tópicos e Subtópicos Hierarquizados** (bullet points com indentação) para mostrar a estrutura lógica e a relação entre as ideias.
-3.  **Para notícias, debates ou análises:** Use um **Sumário Executivo** com os 3 a 5 pontos mais críticos e suas implicações.
+1.  Para tutoriais ou guias ("Como fazer"): Use um formato de Checklist Acionável, com os passos claros e diretos.
+2.  Para vídeos conceituais ou explicativos: Use Tópicos e Subtópicos Hierarquizados (bullet points com indentação) para mostrar a estrutura lógica e a relação entre as ideias.
+3.  Para notícias, debates ou análises: Use um Sumário Executivo com os 3 a 5 pontos mais críticos e suas implicações.
 
 [TOM E ESTILO]
-- **Tom:** Objetivo, direto e informativo.
-- **Linguagem:** Simples e acessível, evitando jargões desnecessários.
-- **Foco:** Clareza e utilidade prática para quem não tem tempo de assistir ao vídeo completo.
-- **Use a sintaxe Markdown (ex: `**negrito**` para ênfase, `*` ou `-` para listas) para estruturar sua resposta e melhorar a legibilidade.**
+- Tom: Objetivo, direto e informativo.
+- Linguagem: Simples e acessível, evitando jargões desnecessários.
+- Foco: Clareza e utilidade prática para quem não tem tempo de assistir ao vídeo completo.
+- Use a sintaxe Markdown (ex: `**negrito**` para ênfase, `*` ou `-` para listas) para estruturar sua resposta e melhorar a legibilidade.
 
 [CONTEÚDO DO VÍDEO PARA ANÁLISE]
 ---
@@ -151,47 +126,130 @@ Apresente o resumo usando a estrutura mais adequada para o conteúdo do vídeo. 
     except Exception as e:
         return f"Ocorreu um erro ao gerar o resumo com a API: {str(e)}"
 
-# --- ROTAS DA API ---
+def gerar_analise_consolidada_com_gemini(resumos_compilados):
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    prompt = f"""
+    Com base no conjunto de resumos de vídeos de finanças a seguir, sua tarefa é criar uma análise consolidada.
+
+    [TAREFA]
+    1.  Identifique os 3 a 5 temas principais que foram discutidos no geral.
+    2.  Para cada tema, mencione brevemente quais canais o abordaram.
+    3.  Conclua com uma observação sobre o sentimento geral (otimista, cauteloso, misto) que os vídeos transmitem.
+
+    [FORMATO]
+    Use tópicos e subtópicos em Markdown para uma apresentação clara e organizada.
+
+    [RESUMOS PARA ANÁLISE]
+    ---
+    {resumos_compilados}
+    ---
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Ocorreu um erro ao gerar a análise consolidada: {str(e)}"
 
 @app.route('/')
 def index():
-    """Renderiza a página HTML principal."""
     return render_template('index.html')
 
-@app.route('/api/summarize', methods=['POST'])
-def summarize_videos():
-    """
-    Endpoint da API que recebe os parâmetros do frontend,
-    processa os vídeos e retorna os resumos em formato JSON.
-    """
+@app.route('/api/generate-summaries', methods=['POST'])
+def handle_generate_summaries():
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "Requisição inválida"}), 400
+    batch_id = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    batch_dir = os.path.join(DATA_DIR, batch_id)
+    os.makedirs(batch_dir)
 
-    time_type = data.get('timeType')
-    time_value = data.get('timeValue')
-    channel_query = data.get('channel', '')
+    videos = buscar_videos(data.get('channel', ''), data.get('timeType'), data.get('timeValue'))
 
-    videos = buscar_videos(channel_query, time_type, time_value)
-    
-    summaries = []
-    for video in videos:
+    if not videos:
+        return jsonify({"status": "success", "batch_id": batch_id, "summary_count": 0})
+
+    summary_metadata = []
+    for i, video in enumerate(videos):
         video_id = video['id']['videoId']
         video_title = video['snippet']['title']
         channel_title = video['snippet']['channelTitle']
         
-        transcricao = obter_transcricao(video_id)
-        if transcricao:
-            resumo = resumir_texto_com_gemini(transcricao, video_title, tema_video=channel_title)
-            summaries.append({
-                "title": video_title,
-                "channel": channel_title,
-                "summary": resumo
-            })
+        transcription = obter_transcricao(video_id)
+        summary_text = resumir_texto_com_gemini(transcription, video_title, channel_title)
+        
+        txt_filename = f"resumo_{i+1}.txt"
+        txt_path = os.path.join(batch_dir, txt_filename)
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            f.write(summary_text)
+            
+        summary_metadata.append({
+            "id": i + 1,
+            "title": video_title,
+            "channel": channel_title,
+            "txt_filename": txt_filename
+        })
 
-    return jsonify(summaries)
+    with open(os.path.join(batch_dir, '_metadata.json'), 'w', encoding='utf-8') as f:
+        json.dump({"summaries": summary_metadata}, f, indent=4)
+        
+    return jsonify({"status": "success", "batch_id": batch_id, "summary_count": len(summary_metadata)})
 
-# --- EXECUÇÃO DO SERVIDOR ---
+@app.route('/api/get-overview')
+def handle_get_overview():
+    batches = []
+    if os.path.exists(DATA_DIR):
+        for batch_id in sorted(os.listdir(DATA_DIR), reverse=True):
+            batch_dir = os.path.join(DATA_DIR, batch_id)
+            metadata_path = os.path.join(batch_dir, '_metadata.json')
+            if os.path.isdir(batch_dir) and os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    batches.append({
+                        "id": batch_id,
+                        "date": batch_id.split('_')[0],
+                        "time": batch_id.split('_')[1].replace('-', ':'),
+                        "summary_count": len(metadata.get("summaries", [])),
+                        "summaries_metadata": metadata.get("summaries", [])
+                    })
+    return jsonify({"batches": batches})
+
+@app.route('/api/generate-consolidated-summary', methods=['POST'])
+def handle_generate_consolidated_summary():
+    data = request.get_json()
+    batch_id = data.get('batch_id')
+    batch_dir = os.path.join(DATA_DIR, batch_id)
+
+    if not os.path.exists(batch_dir):
+        return jsonify({"error": "Lote não encontrado."}), 404
+
+    all_summaries_text = []
+    metadata_path = os.path.join(batch_dir, '_metadata.json')
+    with open(metadata_path, 'r', encoding='utf-8') as f:
+        metadata = json.load(f)
+
+    for summary_info in metadata.get("summaries", []):
+        txt_path = os.path.join(batch_dir, summary_info['txt_filename'])
+        if os.path.exists(txt_path):
+            with open(txt_path, 'r', encoding='utf-8') as f_txt:
+                all_summaries_text.append(f"--- RESUMO DO VÍDEO: {summary_info['title']} ---\n{f_txt.read()}")
+
+    final_analysis = gerar_analise_consolidada_com_gemini("\n\n".join(all_summaries_text))
+    return jsonify({"consolidated_summary": final_analysis})
+
+@app.route('/api/get-summary-content/<batch_id>/<txt_filename>')
+def get_summary_content(batch_id, txt_filename):
+    try:
+        if '..' in batch_id or '..' in txt_filename:
+            return jsonify({"error": "Acesso inválido."}), 400
+        
+        file_path = os.path.join(DATA_DIR, batch_id, txt_filename)
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({"content": content})
+        else:
+            return jsonify({"error": "Arquivo de resumo não encontrado."}), 404
+    except Exception as e:
+        print(f"Erro ao ler arquivo de resumo: {e}")
+        return jsonify({"error": "Erro interno ao ler arquivo."}), 500
+
 if __name__ == '__main__':
-    # Executa o servidor Flask em modo de desenvolvimento
     app.run(debug=True, port=5000)

@@ -1,140 +1,197 @@
-// Gerencia a interação do usuário com as opções de período de tempo.
-document.querySelectorAll('.time-option').forEach(option => {
-    option.addEventListener('click', function() {
-        document.querySelectorAll('.time-option').forEach(opt => opt.classList.remove('active'));
-        this.classList.add('active');
-        this.querySelector('input[type="radio"]').checked = true;
-        
-        const input = this.querySelector('input[type="number"]');
-        if (input) input.focus();
-    });
-});
+// --- Gerenciamento de Telas ---
+function showScreen(screenName) {
+    document.querySelectorAll('.main-container').forEach(s => s.style.display = 'none');
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-// Manipula a submissão do formulário de configuração.
+    document.getElementById(`${screenName}-screen`).style.display = 'block';
+    const activeBtn = document.querySelector(`.nav-btn[onclick="showScreen('${screenName}')"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    if (screenName === 'overview') {
+        loadOverviewData();
+    }
+}
+
+// --- Lógica do Resumidor (Tela de Configuração) ---
 document.getElementById('config-form').addEventListener('submit', function(e) {
     e.preventDefault();
-    
-    const timeTypeRadio = document.querySelector('input[name="time-type"]:checked');
-    if (!timeTypeRadio) {
-        alert('Por favor, selecione um período de busca.');
-        return;
-    }
-    
-    const timeType = timeTypeRadio.value;
-    const timeValue = document.getElementById(timeType + '-input').value;
-    if (!timeValue) {
-        alert('Por favor, informe a quantidade de ' + (timeType === 'hours' ? 'horas' : 'semanas') + '.');
-        return;
-    }
-    
-    const channel = document.getElementById('channel-input').value;
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const loadingSpinner = form.querySelector('.loading-spinner');
 
-    // Exibe o spinner de carregamento e desabilita o botão.
-    document.getElementById('loading-spinner').style.display = 'block';
-    document.querySelector('button[type="submit"]').disabled = true;
+    const timeTypeRadio = form.querySelector('input[name="time-type"]:checked');
+    if (!timeTypeRadio) { return alert('Por favor, selecione um período de busca.'); }
     
-    // Faz a chamada para a API do backend.
-    fetch('/api/summarize', {
+    const timeValue = document.getElementById(timeTypeRadio.value + '-input').value;
+    if (!timeValue) { return alert('Por favor, informe a quantidade.'); }
+
+    loadingSpinner.style.display = 'block';
+    submitBtn.disabled = true;
+
+    fetch('/api/generate-summaries', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            timeType: timeType,
+            timeType: timeTypeRadio.value,
             timeValue: timeValue,
-            channel: channel
+            channel: form.querySelector('#channel-input').value
         })
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('A resposta do servidor não foi bem-sucedida.');
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(`${data.summary_count} resumos foram gerados com sucesso no lote ${data.batch_id}`);
+            showScreen('overview'); // Muda para a tela de visão geral após o sucesso
+        } else {
+            throw new Error(data.error || 'Ocorreu um erro desconhecido.');
         }
-        return response.json();
-    })
-    .then(summaries => {
-        displaySummaries(summaries, timeType, timeValue);
     })
     .catch(error => {
-        console.error('Erro ao buscar resumos:', error);
-        alert('Ocorreu um erro ao comunicar com o servidor. Verifique o console para mais detalhes.');
+        console.error('Erro ao gerar resumos:', error);
+        alert(`Erro: ${error.message}`);
     })
     .finally(() => {
-        // Esconde o spinner e reabilita o botão, independentemente do resultado.
-        document.getElementById('loading-spinner').style.display = 'none';
-        document.querySelector('button[type="submit"]').disabled = false;
+        loadingSpinner.style.display = 'none';
+        submitBtn.disabled = false;
     });
 });
 
-// Exibe os resumos recebidos do backend, renderizando o Markdown.
-function displaySummaries(summaries, timeType, timeValue) {
-    const container = document.getElementById('summaries-container');
-    const subtitle = document.getElementById('summary-subtitle');
-    const noResultsDiv = document.getElementById('no-results');
+// --- Lógica da Visão Geral (Totalmente Refatorada) ---
+async function loadOverviewData() {
+    const selector = document.getElementById('batch-selector');
+    const overviewContent = document.getElementById('overview-content');
+    const noBatchesDiv = document.getElementById('no-batches');
     
-    const period = timeType === 'hours' ? `${timeValue} horas` : `${timeValue} semanas`;
-    subtitle.textContent = `${summaries.length} resumos encontrados para vídeos nas últimas ${period}.`;
+    selector.innerHTML = '<option>Carregando lotes...</option>';
     
-    container.innerHTML = '';
-    
-    if (summaries.length === 0) {
-        noResultsDiv.style.display = 'block';
-    } else {
-        noResultsDiv.style.display = 'none';
-        summaries.forEach(video => {
-            const videoCard = document.createElement('div');
-            videoCard.className = 'video-card';
-
-            // Converte o texto do resumo de Markdown para HTML
-            const rawHtml = marked.parse(video.summary);
-
-            // Limpa o HTML para segurança antes de inseri-lo na página
-            const sanitizedHtml = DOMPurify.sanitize(rawHtml);
-
-            videoCard.innerHTML = `
-                <h5 class="video-title">${video.title}</h5>
-                <p class="text-muted mb-2">
-                    <i class="fas fa-tv me-1"></i>${video.channel}
-                </p>
-                <div class="video-summary">
-                    ${sanitizedHtml}
-                </div>
-            `;
-            container.appendChild(videoCard);
-        });
-    }
-    
-    document.getElementById('config-screen').style.display = 'none';
-    document.getElementById('summary-screen').style.display = 'block';
-}
-
-// Controla o botão "Voltar" para retornar à tela de configuração.
-function goBack() {
-    document.getElementById('summary-screen').style.display = 'none';
-    document.getElementById('config-screen').style.display = 'block';
-}
-
-let currentVideos = [];
+    try {
+        const response = await fetch('/api/get-overview');
+        const data = await response.json();
         
-// Gerenciamento de telas
-function showScreen(screenName) {
-    // Esconde todas as telas
-    document.querySelectorAll('[id$="-screen"]').forEach(screen => {
-        screen.style.display = 'none';
-    });
-    
-    // Remove active de todos os botões
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    
-    // Mostra a tela selecionada
-    if (screenName === 'config') {
-        document.getElementById('config-screen').style.display = 'block';
-        document.querySelector('[onclick="showScreen(\'config\')"]').classList.add('active');
-    } else if (screenName === 'overview') {
-        document.getElementById('overview-screen').style.display = 'block';
-        document.querySelector('[onclick="showScreen(\'overview\')"]').classList.add('active');
-        updateOverviewStats();
-        loadPDFs();
+        if (data.batches && data.batches.length > 0) {
+            overviewContent.style.display = 'block';
+            noBatchesDiv.style.display = 'none';
+            selector.innerHTML = '';
+            data.batches.forEach(batch => {
+                const option = document.createElement('option');
+                option.value = batch.id;
+                option.textContent = `Lote de ${batch.date} às ${batch.time} (${batch.summary_count} resumos)`;
+                // Armazena os metadados dos resumos no próprio elemento da opção
+                option.dataset.summaries = JSON.stringify(batch.summaries_metadata);
+                selector.appendChild(option);
+            });
+            displayBatchDetails(selector.value); // Exibe detalhes do primeiro lote da lista
+        } else {
+            overviewContent.style.display = 'none';
+            noBatchesDiv.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Erro ao carregar dados da visão geral:', error);
+        noBatchesDiv.innerHTML = '<p class="text-danger">Não foi possível carregar os lotes.</p>';
     }
 }
+
+document.getElementById('batch-selector').addEventListener('change', function(e) {
+    displayBatchDetails(e.target.value);
+});
+
+// Exibe os detalhes de um lote selecionado como um acordeão
+function displayBatchDetails(batchId) {
+    const selector = document.getElementById('batch-selector');
+    const selectedOption = selector.querySelector(`option[value="${batchId}"]`);
+    if (!selectedOption) return;
+
+    const summaries = JSON.parse(selectedOption.dataset.summaries || '[]');
+    const accordionContainer = document.getElementById('summaries-accordion-container');
+    const generalSummaryContainer = document.getElementById('general-summary-content');
+
+    generalSummaryContainer.innerHTML = '<p class="text-muted">Clique em "Gerar Análise" para começar.</p>';
+    accordionContainer.innerHTML = '';
+
+    if (summaries.length === 0) {
+        accordionContainer.innerHTML = '<p class="text-muted">Este lote não contém resumos.</p>';
+        return;
+    }
+
+    summaries.forEach((summary, index) => {
+        const accordionId = `accordion-${batchId}-${index}`;
+        const accordionItem = document.createElement('div');
+        accordionItem.className = 'accordion-item';
+        accordionItem.innerHTML = `
+            <h2 class="accordion-header" id="heading-${accordionId}">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                        data-bs-target="#collapse-${accordionId}" aria-expanded="false" 
+                        aria-controls="collapse-${accordionId}">
+                    <strong>${summary.title}</strong>&nbsp;-&nbsp;<small class="text-muted">${summary.channel}</small>
+                </button>
+            </h2>
+            <div id="collapse-${accordionId}" class="accordion-collapse collapse" 
+                 aria-labelledby="heading-${accordionId}">
+                <div class="accordion-body">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        // Adiciona um listener para carregar o conteúdo quando o card for aberto
+        const button = accordionItem.querySelector('button');
+        button.addEventListener('click', () => {
+            loadSummaryContent(batchId, summary.txt_filename, `collapse-${accordionId}`);
+        }, { once: true }); // 'once: true' garante que o conteúdo só seja carregado uma vez
+
+        accordionContainer.appendChild(accordionItem);
+    });
+}
+
+// Carrega o conteúdo de um resumo específico sob demanda
+async function loadSummaryContent(batchId, txtFilename, targetDivId) {
+    const accordionBody = document.getElementById(targetDivId).querySelector('.accordion-body');
+    try {
+        const response = await fetch(`/api/get-summary-content/${batchId}/${txtFilename}`);
+        const data = await response.json();
+
+        if (data.error) throw new Error(data.error);
+        
+        const rawHtml = marked.parse(data.content);
+        accordionBody.innerHTML = DOMPurify.sanitize(rawHtml);
+    } catch (error) {
+        console.error('Erro ao carregar conteúdo do resumo:', error);
+        accordionBody.innerHTML = `<p class="text-danger">Não foi possível carregar o resumo.</p>`;
+    }
+}
+
+document.getElementById('generate-summary-btn').addEventListener('click', async function() {
+    const btn = this;
+    const batchId = document.getElementById('batch-selector').value;
+    const container = document.getElementById('general-summary-content');
+
+    if (!batchId) return alert('Selecione um lote primeiro.');
+
+    btn.disabled = true;
+    container.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Gerando...</span></div>';
+
+    try {
+        const response = await fetch('/api/generate-consolidated-summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch_id: batchId })
+        });
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+
+        const rawHtml = marked.parse(data.consolidated_summary);
+        container.innerHTML = DOMPurify.sanitize(rawHtml);
+    } catch (error) {
+        console.error('Erro ao gerar resumo consolidado:', error);
+        container.innerHTML = `<p class="text-danger">Erro ao gerar análise: ${error.message}</p>`;
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', () => showScreen('config'));
