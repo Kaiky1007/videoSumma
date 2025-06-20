@@ -21,8 +21,8 @@ Antes de começar, garanta que você tenha os seguintes softwares instalados:
 
 1.  **Clone o Repositório**
     ```bash
-    git clone [URL_DO_SEU_REPOSITORIO]
-    cd [NOME_DA_PASTA_DO_PROJETO]
+    git clone https://github.com/Kaiky1007/videoSumma
+    cd videoSumma/
     ```
 
 2.  **Crie o Arquivo de Ambiente (`.env`)**
