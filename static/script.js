@@ -3,21 +3,26 @@ function showScreen(screenName) {
     document.querySelectorAll('.main-container').forEach(s => s.style.display = 'none');
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-    document.getElementById(`${screenName}-screen`).style.display = 'block';
+    const screenElement = document.getElementById(`${screenName}-screen`);
     const activeBtn = document.querySelector(`.nav-btn[onclick="showScreen('${screenName}')"]`);
+
+    if (screenElement) screenElement.style.display = 'block';
     if (activeBtn) activeBtn.classList.add('active');
 
+    // Ao mudar para a Visão Geral, sempre recarrega os dados dos lotes
     if (screenName === 'overview') {
         loadOverviewData();
     }
 }
 
-// --- Lógica do Resumidor (Tela de Configuração) ---
+
+// --- Lógica do Resumidor (Início da Tarefa Assíncrona) ---
 document.getElementById('config-form').addEventListener('submit', function(e) {
     e.preventDefault();
     const form = e.target;
     const submitBtn = form.querySelector('button[type="submit"]');
     const loadingSpinner = form.querySelector('.loading-spinner');
+    const statusText = loadingSpinner.querySelector('p');
 
     const timeTypeRadio = form.querySelector('input[name="time-type"]:checked');
     if (!timeTypeRadio) { return alert('Por favor, selecione um período de busca.'); }
@@ -27,7 +32,9 @@ document.getElementById('config-form').addEventListener('submit', function(e) {
 
     loadingSpinner.style.display = 'block';
     submitBtn.disabled = true;
+    statusText.textContent = "Enviando seu pedido para a fila de processamento...";
 
+    // Chama a API para INICIAR a tarefa em segundo plano
     fetch('/api/generate-summaries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,26 +44,74 @@ document.getElementById('config-form').addEventListener('submit', function(e) {
             channel: form.querySelector('#channel-input').value
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        if (response.status !== 202) { // 202 Accepted é o status esperado para tarefas iniciadas
+            throw new Error('Falha ao iniciar a tarefa no servidor.');
+        }
+        return response.json();
+    })
     .then(data => {
-        if (data.status === 'success') {
-            alert(`${data.summary_count} resumos foram gerados com sucesso no lote ${data.batch_id}`);
-            showScreen('overview'); // Muda para a tela de visão geral após o sucesso
+        if (data.task_id) {
+            // Se a tarefa foi iniciada, começa a verificar o status dela
+            checkTaskStatus(data.task_id);
         } else {
-            throw new Error(data.error || 'Ocorreu um erro desconhecido.');
+            throw new Error('O servidor não retornou um ID para a tarefa.');
         }
     })
     .catch(error => {
-        console.error('Erro ao gerar resumos:', error);
+        console.error('Erro ao iniciar a geração de resumos:', error);
         alert(`Erro: ${error.message}`);
-    })
-    .finally(() => {
         loadingSpinner.style.display = 'none';
         submitBtn.disabled = false;
     });
 });
 
-// --- Lógica da Visão Geral (Totalmente Refatorada) ---
+
+// --- Monitoramento de Tarefas (Polling) ---
+function checkTaskStatus(taskId) {
+    const loadingSpinner = document.querySelector('.loading-spinner');
+    const submitBtn = document.querySelector('button[type="submit"]');
+    const statusText = loadingSpinner.querySelector('p');
+
+    // Cria um intervalo para verificar o status a cada 5 segundos
+    const interval = setInterval(() => {
+        fetch(`/api/task-status/${taskId}`)
+            .then(response => response.json())
+            .then(data => {
+                // Atualiza o texto de status na tela para o usuário ver o progresso
+                if (data.status) {
+                    statusText.textContent = data.status;
+                }
+
+                // Se o estado for SUCCESS (Concluído)
+                if (data.state === 'SUCCESS') {
+                    clearInterval(interval); // Para de verificar
+                    loadingSpinner.style.display = 'none';
+                    submitBtn.disabled = false;
+                    alert(`Processamento concluído! ${data.result.summary_count} resumos foram gerados.`);
+                    showScreen('overview'); // Leva para a tela de visão geral
+                } 
+                // Se o estado for FAILURE (Falha)
+                else if (data.state === 'FAILURE') {
+                    clearInterval(interval); // Para de verificar
+                    loadingSpinner.style.display = 'none';
+                    submitBtn.disabled = false;
+                    alert(`Ocorreu um erro durante o processamento: ${data.status}`);
+                }
+                // Se ainda estiver em PENDING ou PROGRESS, o loop continua
+            })
+            .catch(err => {
+                clearInterval(interval); // Para de verificar em caso de erro de rede
+                alert('Erro de conexão ao verificar o status da tarefa.');
+                console.error('Erro de polling:', err);
+                loadingSpinner.style.display = 'none';
+                submitBtn.disabled = false;
+            });
+    }, 5000); // Intervalo de verificação: 5000 ms = 5 segundos
+}
+
+
+// --- Lógica da Visão Geral (Carregar e Exibir Dados) ---
 async function loadOverviewData() {
     const selector = document.getElementById('batch-selector');
     const overviewContent = document.getElementById('overview-content');
@@ -76,11 +131,10 @@ async function loadOverviewData() {
                 const option = document.createElement('option');
                 option.value = batch.id;
                 option.textContent = `Lote de ${batch.date} às ${batch.time} (${batch.summary_count} resumos)`;
-                // Armazena os metadados dos resumos no próprio elemento da opção
                 option.dataset.summaries = JSON.stringify(batch.summaries_metadata);
                 selector.appendChild(option);
             });
-            displayBatchDetails(selector.value); // Exibe detalhes do primeiro lote da lista
+            displayBatchDetails(selector.value);
         } else {
             overviewContent.style.display = 'none';
             noBatchesDiv.style.display = 'block';
@@ -93,7 +147,7 @@ async function loadOverviewData() {
 
 document.getElementById('batch-selector').addEventListener('change', function(e) {
     displayBatchDetails(e.target.value);
-});
+})
 
 // Exibe os detalhes de um lote selecionado como um acordeão
 function displayBatchDetails(batchId) {

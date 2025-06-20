@@ -6,10 +6,33 @@ from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 import google.generativeai as genai
 from googleapiclient.discovery import build
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api import YouTubeTranscriptApi
+from celery import Celery, Task
 
 load_dotenv()
 app = Flask(__name__)
+app.config.update(
+    broker_url='redis://localhost:6379/0',
+    result_backend='redis://localhost:6379/0'
+)
+
+def make_celery(app):
+    celery = Celery(
+        app.import_name,
+        backend=app.config['result_backend'],
+        broker=app.config['broker_url']      
+    )
+    celery.conf.update(app.config)
+
+    class ContextTask(Task):
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return self.run(*args, **kwargs)
+
+    celery.Task = ContextTask
+    return celery
+
+celery = make_celery(app)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -149,6 +172,70 @@ def gerar_analise_consolidada_com_gemini(resumos_compilados):
         return response.text
     except Exception as e:
         return f"Ocorreu um erro ao gerar a análise consolidada: {str(e)}"
+    
+@celery.task(bind=True, name='tasks.generate_summaries')
+def generate_summaries_task(self, channel_query, time_type, time_value):
+    """
+    Esta é a tarefa que roda em segundo plano para não travar a aplicação.
+    O 'bind=True' nos dá acesso ao 'self', que representa a própria tarefa.
+    """
+    try:
+        # 1. Cria um diretório único para este lote de resumos
+        batch_id = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        batch_dir = os.path.join(DATA_DIR, batch_id)
+        os.makedirs(batch_dir)
+
+        # 2. Busca os vídeos na API do YouTube
+        self.update_state(state='PROGRESS', meta={'current': 0, 'total': '?', 'status': 'Buscando vídeos...'})
+        videos = buscar_videos(channel_query, time_type, time_value)
+
+        if not videos:
+            return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': 0, 'message': 'Nenhum vídeo novo encontrado no período selecionado.'}
+
+        # 3. Processa cada vídeo encontrado
+        summary_metadata = []
+        total_videos = len(videos)
+        for i, video in enumerate(videos):
+            # Atualiza o estado para o frontend saber o progresso
+            self.update_state(
+                state='PROGRESS',
+                meta={'current': i, 'total': total_videos, 'status': f'Processando vídeo {i+1} de {total_videos}: {video["snippet"]["title"]}'}
+            )
+
+            video_id = video['id']['videoId']
+            video_title = video['snippet']['title']
+            channel_title = video['snippet']['channelTitle']
+            
+            transcription = obter_transcricao(video_id)
+            summary_text = resumir_texto_com_gemini(transcription, video_title, channel_title)
+            
+            # Define um nome de arquivo de texto simples e o salva
+            txt_filename = f"resumo_{i+1}.txt"
+            txt_path = os.path.join(batch_dir, txt_filename)
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(summary_text)
+                
+            summary_metadata.append({
+                "id": i + 1,
+                "title": video_title,
+                "channel": channel_title,
+                "txt_filename": txt_filename
+            })
+
+        # 4. Salva os metadados do lote para referência futura
+        with open(os.path.join(batch_dir, '_metadata.json'), 'w', encoding='utf-8') as f:
+            json.dump({"summaries": summary_metadata}, f, indent=4)
+            
+        # 5. Retorna o resultado final da tarefa
+        return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': total_videos}
+
+    except Exception as e:
+        # Em caso de erro, atualiza o estado para 'FAILURE'
+        self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
+        # Também é uma boa prática registrar o erro no log do servidor
+        print(f"ERRO na tarefa Celery: {e}")
+        # Retorna a exceção para que o Celery a registre como uma falha
+        raise e
 
 @app.route('/')
 def index():
