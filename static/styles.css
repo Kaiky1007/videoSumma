@@ -1,0 +1,202 @@
+body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.main-container {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    margin: 2rem auto;
+    max-width: 900px;
+}
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2rem;
+    border-radius: 15px 15px 0 0;
+}
+
+.nav-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.nav-btn {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 25px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.nav-btn:hover {
+    background: rgba(255,255,255,0.3);
+    color: white;
+    transform: translateY(-1px);
+}
+
+.nav-btn.active {
+    background: white;
+    color: #667eea;
+    font-weight: 600;
+}
+
+.content-area {
+    padding: 2rem;
+}
+
+.time-option {
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.time-option:hover {
+    border-color: #667eea;
+    background-color: #f8f9ff;
+}
+
+.time-option.active {
+    border-color: #667eea;
+    background-color: #f8f9ff;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    padding: 0.75rem 2rem;
+    border-radius: 25px;
+    font-weight: 600;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.loading-spinner {
+    display: none;
+}
+
+.video-card {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    background: #f8f9fa;
+}
+
+.video-title {
+    color: #667eea;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.video-summary {
+    line-height: 1.6;
+    color: #495057;
+}
+
+.back-btn {
+    background: #6c757d;
+    border: none;
+    border-radius: 25px;
+    padding: 0.5rem 1.5rem;
+}
+
+.back-btn:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+}
+
+.pdf-card {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    background: white;
+    transition: all 0.3s ease;
+}
+
+.pdf-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.pdf-icon {
+    color: #dc3545;
+    font-size: 2rem;
+}
+
+.download-btn {
+    background: #28a745;
+    border: none;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+}
+
+.download-btn:hover {
+    background: #218838;
+    color: white;
+}
+
+.general-summary {
+    background: linear-gradient(135deg, #f8f9ff 0%, #e3f2fd 100%);
+    border: 1px solid #667eea;
+    border-radius: 15px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.stat-number {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.stat-label {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.generate-btn {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    border: none;
+    color: white;
+    padding: 0.75rem 2rem;
+    border-radius: 25px;
+    font-weight: 600;
+}
+
+.generate-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+    color: white;
+}
