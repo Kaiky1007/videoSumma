@@ -9,6 +9,7 @@ O projeto utiliza uma arquitetura assíncrona para lidar com o processamento de 
 * **Backend**: Servidor web com Flask em Python.
 * **Fila de Tarefas**: Celery, para processar os resumos em segundo plano.
 * **Mensageiro/Cache**: Redis, para a comunicação entre o Flask e o Celery.
+* **Contêineres**: Docker e Docker Compose para orquestrar todos os serviços de forma simples e consistente.
 
 ## Pré-requisitos
 
@@ -32,37 +33,19 @@ Antes de começar, garanta que você tenha os seguintes softwares instalados:
     GEMINI_API_KEY="SUA_CHAVE_DO_GEMINI_AQUI"
     ```
 
-3.  **Instale as Dependências Python**
-    É recomendado usar um ambiente virtual (`venv`).
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # No Windows: venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
 
 ## Como Executar
 
-Para rodar a aplicação completa, você precisará de **3 terminais** abertos na pasta do projeto. Execute os comandos na seguinte ordem:
+1.  **Abra um terminal** na pasta raiz do seu projeto.
 
-**1. No Terminal 1: Inicie o Redis com Docker**
-(Este comando só precisa ser executado uma vez. O contêiner continuará rodando em segundo plano).
-```bash
-docker run -d -p 6379:6379 --name resumidor-redis redis
-```
+2.  **Execute o Docker Compose:**
+    ```bash
+    docker-compose up --build
+    ```
+    * `--build`: Esta flag é necessária na primeira vez que você executa, ou sempre que fizer alterações no `Dockerfile` ou no `requirements.txt`. Ela instrui o Docker a construir a imagem da sua aplicação.
+    * Nas vezes seguintes, você pode usar apenas `docker-compose up`.
 
-**2. No Terminal 2: Inicie o Worker do Celery**
-Este terminal ficará ativo, mostrando os logs das tarefas que estão sendo processadas.
-```bash
-celery -A app.celery worker --loglevel=info
-```
-
-**3. No Terminal 3: Inicie o Servidor Flask**
-Este terminal ficará ativo, mostrando os logs das requisições web.
-```bash
-python app.py
-```
-
-**4.**
-Abra seu navegador e acesse: `http://127.0.0.1:5000`
+3.  **Acesse a Aplicação:**
+    Abra seu navegador e acesse: `http://127.0.0.1:5000`
 
 ---
