@@ -11,24 +11,25 @@ from celery import Celery, Task
 
 load_dotenv()
 app = Flask(__name__)
+
 app.config.update(
-    broker_url='redis://localhost:6379/0',
-    result_backend='redis://localhost:6379/0'
+    broker_url='redis://redis:6379/0',
+    result_backend='redis://redis:6379/0'
 )
 
-def make_celery(app):
-    celery = Celery(
-        app.import_name,
-        backend=app.config['result_backend'],
-        broker=app.config['broker_url']      
-    )
-    celery.conf.update(app.config)
 
+def make_celery(app_instance):
+    """Cria e configura a instância do Celery."""
+    celery = Celery(
+        app_instance.import_name,
+        backend=app_instance.config['result_backend'],
+        broker=app_instance.config['broker_url']
+    )
+    celery.conf.update(app_instance.config)
     class ContextTask(Task):
         def __call__(self, *args, **kwargs):
-            with app.app_context():
+            with app_instance.app_context():
                 return self.run(*args, **kwargs)
-
     celery.Task = ContextTask
     return celery
 
@@ -36,13 +37,10 @@ celery = make_celery(app)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 if not YOUTUBE_API_KEY or not GEMINI_API_KEY:
-    raise ValueError("Chaves de API não encontradas no arquivo .env. Verifique sua configuração.")
-
+    raise ValueError("Chaves de API não encontradas no arquivo .env.")
 genai.configure(api_key=GEMINI_API_KEY)
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -78,6 +76,7 @@ def buscar_videos(query_string, time_type, time_value):
                 delta = timedelta(hours=time_val_int)
             params['publishedAfter'] = (datetime.now(timezone.utc) - delta).isoformat().replace('+00:00', 'Z')
         except (ValueError, TypeError):
+            print(f"Valor de tempo inválido: {time_value}")
             return []
 
         info_canal = obter_id_de_url_canal(query)
@@ -180,56 +179,44 @@ def gerar_analise_consolidada_com_gemini(resumos_compilados):
     
 @celery.task(bind=True, name='tasks.generate_summaries')
 def generate_summaries_task(self, channel_query, time_type, time_value):
-    """
-    Esta é a tarefa que roda em segundo plano para não travar a aplicação.
-    O 'bind=True' nos dá acesso ao 'self', que representa a própria tarefa.
-    """
     try:
         batch_id = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         batch_dir = os.path.join(DATA_DIR, batch_id)
         os.makedirs(batch_dir)
 
-        self.update_state(state='PROGRESS', meta={'current': 0, 'total': '?', 'status': 'Buscando vídeos...'})
+        self.update_state(state='PROGRESS', meta={'status': 'Buscando vídeos na API do YouTube...'})
         videos = buscar_videos(channel_query, time_type, time_value)
 
         if not videos:
-            return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': 0, 'message': 'Nenhum vídeo novo encontrado no período selecionado.'}
+            return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': 0, 'message': 'Nenhum vídeo novo encontrado.'}
 
         summary_metadata = []
         total_videos = len(videos)
         for i, video in enumerate(videos):
-            self.update_state(
-                state='PROGRESS',
-                meta={'current': i, 'total': total_videos, 'status': f'Processando vídeo {i+1} de {total_videos}: {video["snippet"]["title"]}'}
-            )
-
-            video_id = video['id']['videoId']
-            video_title = video['snippet']['title']
-            channel_title = video['snippet']['channelTitle']
+            video_title = video["snippet"]["title"]
+            self.update_state(state='PROGRESS', meta={'status': f'Processando {i+1}/{total_videos}: {video_title}'})
             
-            transcription = obter_transcricao(video_id)
-            summary_text = resumir_texto_com_gemini(transcription, video_title, channel_title)
+            summary_text = resumir_texto_com_gemini(
+                obter_transcricao(video['id']['videoId']),
+                video_title,
+                video['snippet']['channelTitle']
+            )
             
             txt_filename = f"resumo_{i+1}.txt"
-            txt_path = os.path.join(batch_dir, txt_filename)
-            with open(txt_path, 'w', encoding='utf-8') as f:
+            with open(os.path.join(batch_dir, txt_filename), 'w', encoding='utf-8') as f:
                 f.write(summary_text)
                 
             summary_metadata.append({
-                "id": i + 1,
-                "title": video_title,
-                "channel": channel_title,
-                "txt_filename": txt_filename
+                "id": i + 1, "title": video_title,
+                "channel": video['snippet']['channelTitle'], "txt_filename": txt_filename
             })
 
         with open(os.path.join(batch_dir, '_metadata.json'), 'w', encoding='utf-8') as f:
             json.dump({"summaries": summary_metadata}, f, indent=4)
             
         return {'status': 'Concluído', 'batch_id': batch_id, 'summary_count': total_videos}
-
     except Exception as e:
-        self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        print(f"ERRO na tarefa Celery: {e}")
+        self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e), 'status': 'Ocorreu um erro na tarefa.'})
         raise e
 
 @app.route('/')
@@ -239,40 +226,23 @@ def index():
 @app.route('/api/generate-summaries', methods=['POST'])
 def handle_generate_summaries():
     data = request.get_json()
-    batch_id = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    batch_dir = os.path.join(DATA_DIR, batch_id)
-    os.makedirs(batch_dir)
+    task = generate_summaries_task.delay(data.get('channel', ''), data.get('timeType'), data.get('timeValue'))
+    return jsonify({"task_id": task.id}), 202
 
-    videos = buscar_videos(data.get('channel', ''), data.get('timeType'), data.get('timeValue'))
+@app.route('/api/task-status/<task_id>')
+def get_task_status(task_id):
+    task = generate_summaries_task.AsyncResult(task_id)
+    response = {'state': task.state, 'status': 'Carregando...'}
+    
+    if isinstance(task.info, dict):
+        response['status'] = task.info.get('status', str(task.info))
+    elif task.state != 'PENDING':
+        response['status'] = str(task.info)
 
-    if not videos:
-        return jsonify({"status": "success", "batch_id": batch_id, "summary_count": 0})
-
-    summary_metadata = []
-    for i, video in enumerate(videos):
-        video_id = video['id']['videoId']
-        video_title = video['snippet']['title']
-        channel_title = video['snippet']['channelTitle']
-        
-        transcription = obter_transcricao(video_id)
-        summary_text = resumir_texto_com_gemini(transcription, video_title, channel_title)
-        
-        txt_filename = f"resumo_{i+1}.txt"
-        txt_path = os.path.join(batch_dir, txt_filename)
-        with open(txt_path, 'w', encoding='utf-8') as f:
-            f.write(summary_text)
-            
-        summary_metadata.append({
-            "id": i + 1,
-            "title": video_title,
-            "channel": channel_title,
-            "txt_filename": txt_filename
-        })
-
-    with open(os.path.join(batch_dir, '_metadata.json'), 'w', encoding='utf-8') as f:
-        json.dump({"summaries": summary_metadata}, f, indent=4)
-        
-    return jsonify({"status": "success", "batch_id": batch_id, "summary_count": len(summary_metadata)})
+    if task.state == 'SUCCESS':
+        response['result'] = task.info
+    
+    return jsonify(response)
 
 @app.route('/api/get-overview')
 def handle_get_overview():

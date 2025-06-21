@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # Serviço 1:
+  redis:
+    image: redis:alpine
+    container_name: videoSumma-redis
+    ports:
+      - "6379:6379"
+
+  # Serviço 2:
+  web:
+    build: .
+    container_name: videoSumma-web
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app 
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_DEBUG=1
+    depends_on:
+      - redis
+
+  # Serviço 3
+  worker:
+    build: .
+    container_name: videoSumma-worker
+    command: celery -A app.celery worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
