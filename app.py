@@ -155,10 +155,23 @@ def buscar_videos(query_string, time_type, time_value):
 
 def obter_transcricao(video_id):
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['pt', 'en'])
-        return " ".join([item['text'] for item in transcript_list])
-    except Exception: return None
+        # 1. Cria uma instância da API do YouTube Transcript
+        ytt_api = YouTubeTranscriptApi()
 
+        # 2. Chama o método fetch() na instância para obter a transcrição
+        # A documentação indica que 'fetch' pode receber uma lista de idiomas.
+        fetched_transcript = ytt_api.fetch(video_id, languages=['pt', 'en'])
+
+        # 3. O objeto 'fetched_transcript' é iterável, mas para obter a lista de
+        # dicionários com 'text', 'start', 'duration', usamos .to_raw_data()
+        transcript_data = fetched_transcript.to_raw_data()
+
+        # 4. Junta apenas o texto de cada parte da transcrição
+        return " ".join([item['text'] for item in transcript_data])
+
+    except Exception as e:
+        print(f"AVISO: Não foi possível obter a transcrição para o vídeo ID '{video_id}'. Motivo: {e}")
+        return None
 def resumir_texto_com_gemini(texto_transcricao, titulo_video, tema_video="geral"):
     if not texto_transcricao: return "Transcrição indisponível."
     model = genai.GenerativeModel('gemini-2.5-flash')
