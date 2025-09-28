@@ -111,7 +111,7 @@ def obter_transcricao(video_id):
 
 def resumir_texto_com_gemini(texto_transcricao, titulo_video, tema_video="geral"):
     if not texto_transcricao: return "Transcrição indisponível."
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
         [PERSONA]
         Atue como um analista de conteúdo sênior e especialista em comunicação didática. Sua especialidade é destilar informações complexas de qualquer área ({tema_video}) e torná-las claras, concisas e acionáveis.
@@ -149,7 +149,7 @@ def resumir_texto_com_gemini(texto_transcricao, titulo_video, tema_video="geral"
         return f"Ocorreu um erro ao gerar o resumo com a API: {str(e)}"
 
 def gerar_analise_consolidada_com_gemini(resumos_compilados):
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
         [PERSONA]
         Atue como um estrategista de conteúdo e analista de tendências. Sua especialidade é analisar um conjunto de informações (neste caso, resumos de vídeos) e identificar padrões, temas emergentes e a narrativa geral que os conecta.
