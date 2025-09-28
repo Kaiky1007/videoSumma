@@ -44,6 +44,22 @@ youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
+def parse_iso8601_duration(duration_string):
+    """Converte uma string de duração ISO 8601 para o total de segundos."""
+    if not duration_string or not duration_string.startswith('PT'):
+        return 0
+    
+    # Regex para capturar horas, minutos e segundos do formato PT[#H][#M][#S]
+    match = re.search(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_string)
+    if not match:
+        return 0
+
+    hours = int(match.group(1)) if match.group(1) else 0
+    minutes = int(match.group(2)) if match.group(2) else 0
+    seconds = int(match.group(3)) if match.group(3) else 0
+
+    return hours * 3600 + minutes * 60 + seconds
+
 def obter_id_de_url_canal(url):
     if not url: return None
     match = re.search(r'\/channel\/([a-zA-Z0-9_-]+)', url)
@@ -64,7 +80,7 @@ def buscar_videos(query_string, time_type, time_value):
     for query in queries:
         params = {
             'part': 'snippet',
-            'maxResults': 10,
+            'maxResults': 25,  # Aumentamos para ter mais margem para o filtro
             'order': 'date',
             'type': 'video'
         }
@@ -101,7 +117,41 @@ def buscar_videos(query_string, time_type, time_value):
         except Exception as e:
             print(f"ERRO CRÍTICO na busca da API do YouTube para a query '{query}': {e}")
             
-    return list(all_videos.values())
+    if not all_videos:
+        return []
+
+    # --- NOVO TRECHO PARA FILTRAR PELA DURAÇÃO ---
+    video_ids = list(all_videos.keys())
+    videos_com_duracao = []
+    
+    # A API permite buscar detalhes de 50 vídeos por vez.
+    for i in range(0, len(video_ids), 50):
+        chunk = video_ids[i:i+50]
+        try:
+            video_details_response = youtube.videos().list(
+                part='contentDetails',
+                id=','.join(chunk)
+            ).execute()
+            videos_com_duracao.extend(video_details_response.get('items', []))
+        except Exception as e:
+            print(f"ERRO CRÍTICO ao buscar detalhes dos vídeos: {e}")
+
+    # Cria um conjunto com os IDs dos vídeos que atendem ao critério
+    ids_videos_longos = set()
+    for video_detail in videos_com_duracao:
+        duration_str = video_detail.get('contentDetails', {}).get('duration')
+        if duration_str:
+            total_seconds = parse_iso8601_duration(duration_str)
+            if total_seconds >= 300:  # 5 minutos = 300 segundos
+                ids_videos_longos.add(video_detail['id'])
+
+    # Filtra a lista original de vídeos, mantendo apenas os que estão no conjunto de IDs
+    videos_filtrados = [
+        video_item for video_id, video_item in all_videos.items()
+        if video_id in ids_videos_longos
+    ]
+            
+    return videos_filtrados
 
 def obter_transcricao(video_id):
     try:
